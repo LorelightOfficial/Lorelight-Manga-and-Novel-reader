@@ -2,9 +2,9 @@ name: Build and publish release
 
 # This workflow runs in this PUBLIC repository so it uses GitHub's unlimited
 # free Actions minutes for public repos. The application source lives in the
-# private LorelightOfficial/LorelightOfficial repository and is fetched fresh
-# into this job's ephemeral runner for each build - it is never committed to
-# this repo. Only the finished, signed APKs are published, as a Release here.
+# private LorelightOfficial/Lorelight repository and is fetched fresh into
+# this job's ephemeral runner for each build - it is never committed to this
+# repo. Only the finished, signed APKs are published, as a Release here.
 #
 # Triggered either by a repository_dispatch sent from the private source repo
 # after it unpacks a new zip, or manually from the Actions tab.
@@ -31,7 +31,7 @@ jobs:
     steps:
       - name: Check required secrets
         run: |
-          test -n "${{ secrets.PAT_TOKEN }}" || { echo "::error::Missing secret PAT_TOKEN (a PAT with 'repo' scope, so this job can read the private source repo)"; exit 1; }
+          test -n "${{ secrets.PAT_TOKEN }}" || { echo "::error::Missing secret PAT_TOKEN (a PAT with 'repo' scope, so this job can read the private Lorelight repo)"; exit 1; }
           test -n "$KEYSTORE_BASE64" || { echo "::error::Missing secret KEYSTORE_BASE64"; exit 1; }
           test -n "$KEY_ALIAS" || { echo "::error::Missing secret KEY_ALIAS"; exit 1; }
           test -n "$KEY_PASSWORD" || { echo "::error::Missing secret KEY_PASSWORD"; exit 1; }
@@ -39,7 +39,7 @@ jobs:
       - name: Checkout private source repository
         uses: actions/checkout@v4
         with:
-          repository: LorelightOfficial/LorelightOfficial
+          repository: LorelightOfficial/Lorelight
           token: ${{ secrets.PAT_TOKEN }}
           path: source
           persist-credentials: false
