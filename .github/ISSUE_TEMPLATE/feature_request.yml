@@ -1,0 +1,30 @@
+name: "\U00002728 Feature request"
+description: Suggest an improvement or a new capability.
+title: "[Feature]: "
+labels: ["enhancement", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Requests to add specific content sources are out of scope — Lorelight ships no content of its own.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions for a similar request
+          required: true
+        - label: This request does not ask for a specific piracy source to be bundled
+          required: true

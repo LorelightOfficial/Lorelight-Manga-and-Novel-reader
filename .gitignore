@@ -1,0 +1,20 @@
+# Credentials must never reach this public repository.
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.keystore.base64
+keystore.properties
+signing.properties
+secrets.properties
+local.properties
+google-services.json
+*.pem
+*.p12
+
+# OS and editor clutter
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

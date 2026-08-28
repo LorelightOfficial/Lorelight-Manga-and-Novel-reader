@@ -1,0 +1,70 @@
+name: "\U0001F41B Bug report"
+description: Something in the app is broken or behaves unexpectedly.
+title: "[Bug]: "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not include keystores, passwords, or `.env` contents anywhere in this issue.
+  - type: input
+    id: version
+    attributes:
+      label: Lorelight version
+      placeholder: "1.0.3 (build 12)"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      placeholder: "Pixel 7a, Android 15"
+    validations:
+      required: true
+  - type: dropdown
+    id: variant
+    attributes:
+      label: APK variant installed
+      options:
+        - arm64-v8a
+        - armeabi-v7a
+        - x86_64
+        - x86
+        - universal
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Diagnostics log or crash output
+      description: Optional but helpful. Copy from Settings, and remove anything personal first.
+      render: text
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before submitting
+      options:
+        - label: I am on the latest release
+          required: true
+        - label: I searched existing issues for a duplicate
+          required: true
+        - label: This issue contains no passwords, keys, or other credentials
+          required: true

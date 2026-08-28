@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "\U0001F4AC Questions and setup help"
+    url: https://github.com/LorelightOfficial/lore-app-link/discussions
+    about: Ask how to use the app or get help installing.
+  - name: "\U0001F512 Report a security vulnerability"
+    url: https://github.com/LorelightOfficial/lore-app-link/security/advisories/new
+    about: Report privately. Please do not open a public issue for security problems.
