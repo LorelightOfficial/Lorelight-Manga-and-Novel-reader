@@ -81,7 +81,36 @@ jobs:
 
       - name: Build release APK
         working-directory: source
-        run: ./gradlew assembleRelease --no-configuration-cache --stacktrace
+        env:
+          # Several mihon dependencies come from jitpack.io, which builds
+          # artifacts on demand and is frequently slow to respond. Gradle's
+          # default 30s socket timeout with a single attempt caused
+          # "SocketTimeoutException: Read timed out" failures, so give it far
+          # more patience and let Gradle itself retry each request.
+          GRADLE_OPTS: >-
+            -Dorg.gradle.internal.http.connectionTimeout=180000
+            -Dorg.gradle.internal.http.socketTimeout=180000
+            -Dorg.gradle.internal.repository.max.retries=6
+            -Dorg.gradle.internal.repository.initial.backoff=1000
+        run: |
+          # Dependencies that downloaded successfully stay in the Gradle cache,
+          # so each retry picks up where the last one stopped rather than
+          # starting from scratch.
+          for attempt in 1 2 3; do
+            echo "::group::Build attempt $attempt of 3"
+            if ./gradlew assembleRelease --no-configuration-cache --stacktrace; then
+              echo "::endgroup::"
+              echo "Build succeeded on attempt $attempt."
+              exit 0
+            fi
+            echo "::endgroup::"
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Attempt $attempt failed. This is usually a jitpack.io timeout while fetching dependencies. Retrying in 30s..."
+              sleep 30
+            fi
+          done
+          echo "::error::Build failed after 3 attempts. Scroll up to the last attempt for the real cause."
+          exit 1
 
       - name: Publish APKs to Releases
         env:
