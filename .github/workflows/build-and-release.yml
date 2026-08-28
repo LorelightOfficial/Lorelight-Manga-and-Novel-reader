@@ -112,14 +112,12 @@ jobs:
           echo "::error::Build failed after 3 attempts. Scroll up to the last attempt for the real cause."
           exit 1
 
-      - name: Publish APKs to Releases
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Collect built APKs
+        id: collect
         run: |
           set -e
           VERSION=$(grep -m1 'versionName' source/app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
           if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
-          TAG="v${VERSION}-${GITHUB_RUN_NUMBER}"
           mkdir -p out
           for f in source/app/build/outputs/apk/release/*.apk; do
             base=$(basename "$f")
@@ -128,13 +126,42 @@ jobs:
             cp "$f" "out/Lorelight-${VERSION}-${abi}.apk"
           done
           ls -l out
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Uploaded before publishing so a failure in the release step never
+      # throws away a 12 minute build - the APKs stay downloadable from the
+      # run's Artifacts section either way.
+      - name: Upload APKs as run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lorelight-${{ steps.collect.outputs.version }}-apks
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish APKs to Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Only the private source is checked out here, into source/, so the
+          # workspace root is not a git repository. Without this, gh tries to
+          # infer the target repo from git and fails with
+          # "fatal: not a git repository".
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.collect.outputs.version }}
+        run: |
+          set -e
+          TAG="v${VERSION}-${GITHUB_RUN_NUMBER}"
           printf 'Automated build.\n\nVersion: %s\nRun: %s\n' "$VERSION" "$GITHUB_RUN_NUMBER" > /tmp/notes.md
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG exists - uploading assets"
-            gh release upload "$TAG" out/*.apk --clobber
+            gh release upload "$TAG" out/*.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
             echo "Creating release $TAG"
-            gh release create "$TAG" out/*.apk --title "Lorelight $VERSION (build $GITHUB_RUN_NUMBER)" --notes-file /tmp/notes.md --latest
+            gh release create "$TAG" out/*.apk \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Lorelight $VERSION (build $GITHUB_RUN_NUMBER)" \
+              --notes-file /tmp/notes.md \
+              --latest
           fi
 
       - name: Clean up fetched source
