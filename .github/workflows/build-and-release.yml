@@ -132,7 +132,7 @@ jobs:
       # throws away a 12 minute build - the APKs stay downloadable from the
       # run's Artifacts section either way.
       - name: Upload APKs as run artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Lorelight-${{ steps.collect.outputs.version }}-apks
           path: out/*.apk
