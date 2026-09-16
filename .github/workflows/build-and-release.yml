@@ -50,8 +50,27 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # The `with:` block below is REQUIRED - do not remove it.
+      #
+      # Builds on 2026-09-16 died in this step with:
+      #   Warning: Failed to find package 'tools'
+      #   Error: The process '.../sdkmanager' failed with exit code 1
+      # about 12 seconds in, so Gradle never ran and no Kotlin was compiled.
+      #
+      # The cause is setup-android@v3's own DEFAULT inputs, not anything
+      # written here: it defaults to `packages: tools platform-tools`, and
+      # Google retired the obsolete `tools` package, so that default install
+      # always fails. An empty `packages` makes the action install nothing;
+      # the "Install Android packages" step below installs what we need.
+      #
+      # `cmdline-tools-version: latest` keeps the runner's preinstalled tools
+      # instead of re-downloading the pinned default (12266719), which logged
+      # "Wrong version in preinstalled sdkmanager" and re-fetched them.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+          cmdline-tools-version: latest
 
       - name: Install Android packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
@@ -64,6 +83,109 @@ jobs:
       - name: Generate Gradle wrapper
         working-directory: source
         run: |
+          gradle wrapper --gradle-version 8.13
+          chmod +x gradlew
+
+      - name: Decode release keystore and write .env
+        working-directory: source
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > release.keystore
+          cat > .env <<EOF_ENV
+          FONTS_API_KEY=
+          RELEASE_KEYSTORE_PATH=release.keystore
+          RELEASE_KEY_ALIAS=$KEY_ALIAS
+          RELEASE_KEY_PASSWORD=$KEY_PASSWORD
+          RELEASE_STORE_PASSWORD=${STORE_PASSWORD:-$KEY_PASSWORD}
+          EOF_ENV
+
+      - name: Build release APK
+        working-directory: source
+        env:
+          # Several mihon dependencies come from jitpack.io, which builds
+          # artifacts on demand and is frequently slow to respond. Gradle's
+          # default 30s socket timeout with a single attempt caused
+          # "SocketTimeoutException: Read timed out" failures, so give it far
+          # more patience and let Gradle itself retry each request.
+          GRADLE_OPTS: >-
+            -Dorg.gradle.internal.http.connectionTimeout=180000
+            -Dorg.gradle.internal.http.socketTimeout=180000
+            -Dorg.gradle.internal.repository.max.retries=6
+            -Dorg.gradle.internal.repository.initial.backoff=1000
+        run: |
+          # Dependencies that downloaded successfully stay in the Gradle cache,
+          # so each retry picks up where the last one stopped rather than
+          # starting from scratch.
+          for attempt in 1 2 3; do
+            echo "::group::Build attempt $attempt of 3"
+            if ./gradlew assembleRelease --no-configuration-cache --stacktrace; then
+              echo "::endgroup::"
+              echo "Build succeeded on attempt $attempt."
+              exit 0
+            fi
+            echo "::endgroup::"
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Attempt $attempt failed. This is usually a jitpack.io timeout while fetching dependencies. Retrying in 30s..."
+              sleep 30
+            fi
+          done
+          echo "::error::Build failed after 3 attempts. Scroll up to the last attempt for the real cause."
+          exit 1
+
+      - name: Collect built APKs
+        id: collect
+        run: |
+          set -e
+          VERSION=$(grep -m1 'versionName' source/app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          mkdir -p out
+          for f in source/app/build/outputs/apk/release/*.apk; do
+            base=$(basename "$f")
+            abi=$(echo "$base" | sed -E 's/^app-(.+)-release(-unsigned)?\.apk$/\1/')
+            if [ "$abi" = "$base" ]; then abi="universal"; fi
+            cp "$f" "out/Lorelight-${VERSION}-${abi}.apk"
+          done
+          ls -l out
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Uploaded before publishing so a failure in the release step never
+      # throws away a 12 minute build - the APKs stay downloadable from the
+      # run's Artifacts section either way.
+      - name: Upload APKs as run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lorelight-${{ steps.collect.outputs.version }}-apks
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish APKs to Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Only the private source is checked out here, into source/, so the
+          # workspace root is not a git repository. Without this, gh tries to
+          # infer the target repo from git and fails with
+          # "fatal: not a git repository".
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.collect.outputs.version }}
+        run: |
+          set -e
+          TAG="v${VERSION}-${GITHUB_RUN_NUMBER}"
+          printf 'Automated build.\n\nVersion: %s\nRun: %s\n' "$VERSION" "$GITHUB_RUN_NUMBER" > /tmp/notes.md
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG exists - uploading assets"
+            gh release upload "$TAG" out/*.apk --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            echo "Creating release $TAG"
+            gh release create "$TAG" out/*.apk \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Lorelight $VERSION (build $GITHUB_RUN_NUMBER)" \
+              --notes-file /tmp/notes.md \
+              --latest
+          fi
+
+      - name: Clean up fetched source
+        if: always()
+        run: rm -rf source        run: |
           gradle wrapper --gradle-version 8.13
           chmod +x gradlew
 
