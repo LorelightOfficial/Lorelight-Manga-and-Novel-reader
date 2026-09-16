@@ -37,7 +37,7 @@ jobs:
           test -n "$KEY_PASSWORD" || { echo "::error::Missing secret KEY_PASSWORD"; exit 1; }
 
       - name: Checkout private source repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: LorelightOfficial/Lorelight
           token: ${{ secrets.PAT_TOKEN }}
