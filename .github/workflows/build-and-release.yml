@@ -20,19 +20,23 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     env:
       KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
     steps:
       - name: Check required secrets
         run: |
-          test -n "${{ secrets.PAT_TOKEN }}" || { echo "::error::Missing secret PAT_TOKEN (a PAT with repo scope, so this job can read the private Lorelight repo)"; exit 1; }
-          test -n "$KEYSTORE_BASE64" || { echo "::error::Missing secret KEYSTORE_BASE64"; exit 1; }
-          test -n "$KEY_ALIAS" || { echo "::error::Missing secret KEY_ALIAS"; exit 1; }
-          test -n "$KEY_PASSWORD" || { echo "::error::Missing secret KEY_PASSWORD"; exit 1; }
+          set -euo pipefail
+          test -n "${{ secrets.PAT_TOKEN }}" || { echo "::error::Missing PAT_TOKEN"; exit 1; }
+          test -n "$GOOGLE_SERVICES_JSON" || { echo "::error::Missing GOOGLE_SERVICES_JSON"; exit 1; }
+          test -n "$KEYSTORE_BASE64" || { echo "::error::Missing KEYSTORE_BASE64"; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "::error::Missing KEY_ALIAS"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "::error::Missing KEY_PASSWORD"; exit 1; }
 
       - name: Checkout private source repository
         uses: actions/checkout@v4
@@ -41,6 +45,26 @@ jobs:
           token: ${{ secrets.PAT_TOKEN }}
           path: source
           persist-credentials: false
+
+      - name: Restore Google Services configuration
+        working-directory: source
+        run: |
+          set -euo pipefail
+          mkdir -p app
+          printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          config = json.loads(Path("app/google-services.json").read_text())
+          package_name = config.get("client", [{}])[0].get("client_info", {}).get("android_client_info", {}).get("package_name")
+
+          if not package_name:
+              raise SystemExit("Invalid Firebase configuration: Android package name missing")
+
+          print(f"Firebase configuration validated for {package_name}")
+          PY
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -87,22 +111,27 @@ jobs:
             -Dorg.gradle.internal.http.connectionTimeout=180000
             -Dorg.gradle.internal.http.socketTimeout=180000
             -Dorg.gradle.internal.repository.max.retries=6
+            -Dorg.gradle.internal.repository.max.retries=6
             -Dorg.gradle.internal.repository.initial.backoff=1000
         run: |
           for attempt in 1 2 3; do
             echo "::group::Build attempt $attempt of 3"
+
             if ./gradlew assembleRelease --no-configuration-cache --stacktrace; then
               echo "::endgroup::"
               echo "Build succeeded on attempt $attempt."
               exit 0
             fi
+
             echo "::endgroup::"
+
             if [ "$attempt" -lt 3 ]; then
               echo "::warning::Attempt $attempt failed. Retrying in 30s..."
               sleep 30
             fi
           done
-          echo "::error::Build failed after 3 attempts. Scroll up to the last attempt for the real cause."
+
+          echo "::error::Build failed after 3 attempts."
           exit 1
 
       - name: Collect built APKs
@@ -111,13 +140,16 @@ jobs:
           set -e
           VERSION=$(grep -m1 'versionName' source/app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
           if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+
           mkdir -p out
+
           for f in source/app/build/outputs/apk/release/*.apk; do
             base=$(basename "$f")
             abi=$(echo "$base" | sed -E 's/^app-(.+)-release(-unsigned)?\.apk$/\1/')
             if [ "$abi" = "$base" ]; then abi="universal"; fi
             cp "$f" "out/Lorelight-${VERSION}-${abi}.apk"
           done
+
           ls -l out
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -137,7 +169,9 @@ jobs:
         run: |
           set -e
           TAG="v${VERSION}-${GITHUB_RUN_NUMBER}"
+
           printf 'Automated build.\n\nVersion: %s\nRun: %s\n' "$VERSION" "$GITHUB_RUN_NUMBER" > /tmp/notes.md
+
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" out/*.apk --clobber --repo "$GITHUB_REPOSITORY"
           else
