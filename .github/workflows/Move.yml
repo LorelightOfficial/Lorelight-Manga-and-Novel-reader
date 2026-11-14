@@ -1,0 +1,92 @@
+
+name: Forward ZIP to Private Repository
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.zip'
+
+permissions:
+  contents: write
+
+jobs:
+  forward-zip:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout public repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Find uploaded ZIP files
+        id: find
+        shell: bash
+        run: |
+          git diff --name-only --diff-filter=AM \
+            "${{ github.event.before }}" \
+            "${{ github.sha }}" \
+            | grep -Ei '\.zip$' > zip-files.txt || true
+
+          if [ -s zip-files.txt ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Forward ZIP files to private repository
+        if: steps.find.outputs.found == 'true'
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -e
+
+          git clone \
+            "https://x-access-token:${PAT_TOKEN}@github.com/LorelightOfficial/Lorelight.git" \
+            private-repo
+
+          while IFS= read -r file; do
+            [ -f "$file" ] || continue
+
+            filename=$(basename "$file")
+            mkdir -p private-repo/incoming-zips
+            cp "$file" "private-repo/incoming-zips/$filename"
+
+            echo "Copied: $filename"
+          done < zip-files.txt
+
+          cd private-repo
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add incoming-zips/
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Receive uploaded ZIP files"
+            git push origin HEAD
+          fi
+
+      - name: Delete ZIP files from public repository
+        if: steps.find.outputs.found == 'true'
+        run: |
+          set -e
+
+          while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              rm "$file"
+              echo "Deleted: $file"
+            fi
+          done < zip-files.txt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -u
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Remove forwarded ZIP files"
+            git push
+          fi
